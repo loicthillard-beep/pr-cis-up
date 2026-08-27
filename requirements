@@ -1,0 +1,13 @@
+pyshp
+statsmodels
+scikit-learn
+fpdf2
+plotly
+pandas
+numpy
+requests
+streamlit
+scipy
+requests
+reportlab
+kaleido==0.2.1
