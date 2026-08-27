@@ -1789,3 +1789,4 @@ with exp_col2:
 
 with st.expander("📋 Données filtrées (après nettoyage IQR)"):
     st.dataframe(df_final.reset_index(drop=True), use_container_width=True)
+
