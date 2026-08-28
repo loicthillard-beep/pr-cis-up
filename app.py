@@ -128,7 +128,7 @@ COULEUR_REFERENCE = '#c0392b'
 # ══════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown("## 🌱 Précis'Up")
-    st.caption("Analyse statistique d'essais en bandes — v8.0")
+    st.caption("Analyse statistique d'essais en bandes — v8.1")
     st.divider()
 
     with st.expander("📥 IMPORTATION DONNÉES", expanded=True):
@@ -348,11 +348,12 @@ def order_zone_labels(series):
     return sorted(vals, key=key)
 
 
-def compare_bands_within_zones(df, zone_col, ordered_zones, bande_ref, alpha_v=0.05):
+def compare_bands_within_zones(df, zone_col, ordered_zones, bande_ref, alpha_v=0.05, disp=lambda x: x):
     """
     Pour chaque zone (ex: zone de potentiel déclarée dans le fichier), compare chaque bande à la
     référence avec le test le plus adapté choisi automatiquement — répond directement à
     « la bande est-elle meilleure, à potentiel de sol égal ? », zone par zone.
+    `disp` permet d'afficher le nom personnalisé de la bande sans changer les calculs.
     """
     rows = []
     for zone in ordered_zones:
@@ -368,7 +369,7 @@ def compare_bands_within_zones(df, zone_col, ordered_zones, bande_ref, alpha_v=0
             data_b = sub[sub['grp'] == b]['rdt'].dropna()
             if len(data_b) < 4:
                 rows.append({
-                    'Zone de potentiel': zone, 'Bande': b,
+                    'Zone de potentiel': zone, 'Bande': disp(b),
                     'N bande': len(data_b), 'N référence': len(data_ref_zone),
                     'Moyenne bande': np.nan, 'Moyenne référence': round(data_ref_zone.mean(), 2),
                     'Gain (qtx)': np.nan, 'Test': "N insuffisant (< 4 obs.)",
@@ -377,7 +378,7 @@ def compare_bands_within_zones(df, zone_col, ordered_zones, bande_ref, alpha_v=0
                 continue
             res = run_main_test(data_b, data_ref_zone, alpha_v=alpha_v)
             rows.append({
-                'Zone de potentiel': zone, 'Bande': b,
+                'Zone de potentiel': zone, 'Bande': disp(b),
                 'N bande': len(data_b), 'N référence': len(data_ref_zone),
                 'Moyenne bande': round(data_b.mean(), 2), 'Moyenne référence': round(data_ref_zone.mean(), 2),
                 'Gain (qtx)': round(data_b.mean() - data_ref_zone.mean(), 2),
@@ -643,11 +644,12 @@ def bin_pca_levels(df_pca, n_levels=3):
     return df_pca, ordered_levels
 
 
-def compare_bands_within_pca_levels(df_pca_binned, ordered_levels, bande_ref, alpha_v=0.05):
+def compare_bands_within_pca_levels(df_pca_binned, ordered_levels, bande_ref, alpha_v=0.05, disp=lambda x: x):
     """
     Pour chaque niveau de sol (issu du découpage de PC1), compare chaque bande à la référence,
     exactement comme le tableau ANOVA Zone × Bande, mais avec des niveaux de sol continus
     dérivés de l'ACP plutôt que de la colonne déclarative 'potentiel'.
+    `disp` permet d'afficher le nom personnalisé de la bande sans changer les calculs.
     """
     rows = []
     for niveau in ordered_levels:
@@ -663,7 +665,7 @@ def compare_bands_within_pca_levels(df_pca_binned, ordered_levels, bande_ref, al
             data_b = sub[sub['grp'] == b]['rdt'].dropna()
             if len(data_b) < 4:
                 rows.append({
-                    'Niveau de sol (PC1)': niveau, 'Bande': b,
+                    'Niveau de sol (PC1)': niveau, 'Bande': disp(b),
                     'N bande': len(data_b), 'N référence': len(data_ref_niveau),
                     'Moyenne bande': np.nan, 'Moyenne référence': round(data_ref_niveau.mean(), 2),
                     'Gain (qtx)': np.nan, 'Test': "N insuffisant (< 4 obs.)",
@@ -672,7 +674,7 @@ def compare_bands_within_pca_levels(df_pca_binned, ordered_levels, bande_ref, al
                 continue
             res = run_main_test(data_b, data_ref_niveau, alpha_v=alpha_v)
             rows.append({
-                'Niveau de sol (PC1)': niveau, 'Bande': b,
+                'Niveau de sol (PC1)': niveau, 'Bande': disp(b),
                 'N bande': len(data_b), 'N référence': len(data_ref_niveau),
                 'Moyenne bande': round(data_b.mean(), 2), 'Moyenne référence': round(data_ref_niveau.mean(), 2),
                 'Gain (qtx)': round(data_b.mean() - data_ref_niveau.mean(), 2),
@@ -801,6 +803,7 @@ if not uploaded_file:
 
     **Ce que fait l'application :**
     - 📊 Sélectionnez **autant de bandes que vous voulez** et choisissez laquelle sert de **référence (témoin)**
+    - 🏷️ Donnez un **nom clair à chaque bande** (barre latérale) pour les retrouver facilement partout dans l'analyse
     - Chaque bande est comparée à la référence avec le **test choisi automatiquement** selon vos données
     - 🔬 Comparaison **croisée de toutes les bandes entre elles**, pas seulement vs la référence
     - 📐 ANOVA spatiale Bande × Zone de potentiel (si au moins 2 zones disponibles)
@@ -846,23 +849,49 @@ except Exception as e:
     st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════
-# 5-bis. SÉLECTION DES BANDES À COMPARER (paramétrable) + VARIABLES DE SOL
+# 5-bis. NOMMAGE DES BANDES + SÉLECTION DES BANDES À COMPARER + VARIABLES DE SOL
 # ══════════════════════════════════════════════════════════════════════════
 bandes_dispo = sorted(df['bande'].unique().tolist())
 soil_vars_candidates = detect_numeric_soil_columns(df)
+
+# ── 🏷️ Nommage des bandes : uniquement pour l'affichage, aucun calcul n'utilise ce nom ──
+with st.sidebar:
+    with st.expander("🏷️ NOMMER LES BANDES", expanded=False):
+        st.caption(
+            "Donnez un nom clair à chaque bande (ex: « Témoin », « Produit X 2L/ha »…) pour la "
+            "retrouver plus facilement dans les tableaux, graphiques et le rapport exporté. "
+            "Laissez vide pour garder l'identifiant d'origine du fichier. Ceci ne change **que "
+            "l'affichage** : tous les calculs statistiques continuent d'utiliser l'identifiant "
+            "d'origine de la bande."
+        )
+        band_labels = {}
+        for b in bandes_dispo:
+            band_labels[b] = st.text_input(
+                f"Nom affiché pour « {b} »", value="", key=f"label_{b}", placeholder=b
+            ).strip()
+
+
+def disp(b):
+    """Renvoie le nom personnalisé d'une bande (défini dans « 🏷️ Nommer les bandes ») pour
+    l'affichage uniquement. Si aucun nom n'a été saisi, renvoie l'identifiant d'origine."""
+    if b is None:
+        return b
+    custom = band_labels.get(b, "")
+    return custom if custom else b
+
 
 with st.sidebar:
     with st.expander("🎚️ SÉLECTION DES BANDES", expanded=True):
         st.caption("Choisissez les bandes à inclure, puis celle qui sert de référence (témoin). Vous pouvez en sélectionner autant que vous voulez.")
         bandes_selectionnees = st.multiselect(
             "Bandes à inclure dans l'analyse",
-            bandes_dispo, default=bandes_dispo
+            bandes_dispo, default=bandes_dispo, format_func=disp
         )
         if len(bandes_selectionnees) >= 2:
             bande_ref = st.selectbox(
                 "🔴 Bande de référence (Témoin)",
                 bandes_selectionnees,
-                index=0
+                index=0, format_func=disp
             )
         else:
             bande_ref = bandes_selectionnees[0] if bandes_selectionnees else None
@@ -886,7 +915,7 @@ if len(bandes_selectionnees) < 2:
     st.stop()
 
 df_travail = df[df['bande'].isin(bandes_selectionnees)].copy()
-df_travail['grp'] = df_travail['bande']  # le nom réel de la bande sert de groupe
+df_travail['grp'] = df_travail['bande']  # le nom réel de la bande sert de groupe (calculs)
 
 n_initial = len(df_travail)
 if clean_iqr:
@@ -904,17 +933,23 @@ else:
 
 n_removed = n_initial - len(df_final)
 
+# ── Colonne d'affichage : le nom personnalisé de la bande, jamais utilisée dans les calculs ──
+df_final['grp_disp'] = df_final['grp'].map(disp)
+
 # ── Palette de couleurs : référence en rouge, autres bandes en verts ──────
 autres_bandes = [b for b in bandes_selectionnees if b != bande_ref]
 color_map = {bande_ref: COULEUR_REFERENCE}
 for i, b in enumerate(autres_bandes):
     color_map[b] = PALETTE_BANDES[i % len(PALETTE_BANDES)]
+# Version « affichage » de la palette et de l'ordre des bandes, indexée sur les noms personnalisés
+color_map_disp = {disp(k): v for k, v in color_map.items()}
+order_disp = [disp(bande_ref)] + [disp(b) for b in autres_bandes]
 
 data_by_band = {b: df_final[df_final['grp'] == b]['rdt'].dropna() for b in bandes_selectionnees}
 n_by_band = {b: len(data_by_band[b]) for b in bandes_selectionnees}
 
 if n_by_band.get(bande_ref, 0) <= 3:
-    st.error(f"❌ Données insuffisantes sur la bande de référence '{bande_ref}' (< 4 observations).")
+    st.error(f"❌ Données insuffisantes sur la bande de référence '{disp(bande_ref)}' (< 4 observations).")
     st.stop()
 
 data_ref = data_by_band[bande_ref]
@@ -961,28 +996,28 @@ st.markdown(f"""
 <div class="hero">
     <h1>🌱 Précis'Up</h1>
     <p>Culture analysée : <b>{culture}</b> &nbsp;·&nbsp; {len(bandes_selectionnees)} bande(s) comparée(s)
-    &nbsp;·&nbsp; Référence : <b>{bande_ref}</b></p>
+    &nbsp;·&nbsp; Référence : <b>{disp(bande_ref)}</b></p>
 </div>
 """, unsafe_allow_html=True)
 
 k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Bandes comparées", f"{len(bandes_selectionnees)}")
-k2.metric("Bande de référence", bande_ref)
-k3.metric("Meilleure bande", best_band['bande'] if best_band else "—")
+k2.metric("Bande de référence", disp(bande_ref))
+k3.metric("Meilleure bande", disp(best_band['bande']) if best_band else "—")
 k4.metric("Gain (meilleure bande)", f"{best_band['gain']:+.2f} qtx" if best_band else "—")
 k5.metric("Bandes significatives", f"{len(sig_bands)}/{len(resultats_bandes)}")
 
 if n_removed > 0:
     st.caption(f"⚠️ {n_removed} points supprimés par nettoyage IQR sur {n_initial} observations.")
 if bandes_ecartees:
-    st.caption(f"⚠️ Bande(s) écartée(s) des tests statistiques (< 4 obs.) : {', '.join(bandes_ecartees)}.")
+    st.caption(f"⚠️ Bande(s) écartée(s) des tests statistiques (< 4 obs.) : {', '.join(disp(b) for b in bandes_ecartees)}.")
 
 if best_band is not None:
     sig = best_band['sig']
     verdict_html = f"""<div class="{'verdict-sig' if sig else 'verdict-nosig'}">
     <strong>{'✅ Meilleure bande détectée' if sig else '❌ Aucune bande significativement meilleure'}</strong>
-    — La bande <b>{best_band['bande']}</b> affiche {'un gain' if best_band['gain'] >= 0 else 'un écart'} de
-    <b>{best_band['gain']:+.2f} qtx/ha</b> ({best_band['gain_pct']:+.1f} %) vs la référence '{bande_ref}',
+    — La bande <b>{disp(best_band['bande'])}</b> affiche {'un gain' if best_band['gain'] >= 0 else 'un écart'} de
+    <b>{best_band['gain']:+.2f} qtx/ha</b> ({best_band['gain_pct']:+.1f} %) vs la référence '{disp(bande_ref)}',
     via {best_band['test']} · p = {format_pval(best_band['p'])} · Cohen's d = {best_band['d']:.2f} ({best_band['d_label']}).
     {("<br>Cet écart n'est probablement pas dû au hasard (confiance ≥ " + str(int((1-alpha_v)*100)) + "%).") if sig else "<br>La variabilité de la parcelle empêche de conclure à un effet réel de cette bande."}
     </div>"""
@@ -1031,20 +1066,20 @@ with tab_rdt:
     col1, col2 = st.columns([3, 2])
     with col1:
         fig_box = px.box(
-            df_final, x="grp", y="rdt", color="grp", points="all", notched=True,
-            color_discrete_map=color_map,
-            category_orders={"grp": [bande_ref] + autres_bandes},
-            labels={"grp": "Bande", "rdt": "Rendement (qtx/ha)"},
+            df_final, x="grp_disp", y="rdt", color="grp_disp", points="all", notched=True,
+            color_discrete_map=color_map_disp,
+            category_orders={"grp_disp": order_disp},
+            labels={"grp_disp": "Bande", "rdt": "Rendement (qtx/ha)"},
             title="Distribution des rendements par bande"
         )
         fig_box.update_layout(plot_bgcolor='white', paper_bgcolor='white', font_color='#33433a', showlegend=False)
         st.plotly_chart(fig_box, use_container_width=True)
     with col2:
         fig_viol = px.violin(
-            df_final, x="grp", y="rdt", color="grp", box=True,
-            color_discrete_map=color_map,
-            category_orders={"grp": [bande_ref] + autres_bandes},
-            labels={"grp": "Bande", "rdt": "Rendement (qtx/ha)"},
+            df_final, x="grp_disp", y="rdt", color="grp_disp", box=True,
+            color_discrete_map=color_map_disp,
+            category_orders={"grp_disp": order_disp},
+            labels={"grp_disp": "Bande", "rdt": "Rendement (qtx/ha)"},
             title="Densité de probabilité"
         )
         fig_viol.update_layout(plot_bgcolor='white', paper_bgcolor='white', font_color='#33433a', showlegend=False)
@@ -1052,7 +1087,7 @@ with tab_rdt:
 
     st.subheader("📋 Tableau comparatif — chaque bande vs référence")
     df_cmp = pd.DataFrame([{
-        'Bande': r['bande'], 'N': r['n'], 'Moyenne (qtx)': round(r['moyenne'], 2),
+        'Bande': disp(r['bande']), 'N': r['n'], 'Moyenne (qtx)': round(r['moyenne'], 2),
         'Gain vs réf. (qtx)': round(r['gain'], 2), 'Gain (%)': round(r['gain_pct'], 1),
         'Marge nette (€/ha)': round(r['marge'], 0), 'Test utilisé': r['test'],
         'p-value': format_pval(r['p']), 'Significatif': '✅ Oui' if r['sig'] else '❌ Non',
@@ -1063,6 +1098,8 @@ with tab_rdt:
     desc = df_final.groupby('grp')['rdt'].describe().round(2)
     desc.columns = ['N', 'Moyenne', 'Écart-type', 'Min', 'Q25', 'Médiane', 'Q75', 'Max']
     desc = desc.reindex([bande_ref] + autres_bandes)
+    desc.index = [disp(i) for i in desc.index]
+    desc.index.name = "Bande"
     with st.expander("📊 Statistiques descriptives complètes (toutes bandes)"):
         st.dataframe(desc, use_container_width=True)
 
@@ -1070,7 +1107,7 @@ with tab_rdt:
         detail_rows = []
         for r in resultats_bandes:
             detail_rows.append({
-                'Bande': r['bande'],
+                'Bande': disp(r['bande']),
                 'Échantillon réduit (<8 obs.)': 'Oui' if r['small_sample'] else 'Non',
                 'Shapiro (bande)': format_pval(r['shapiro_a']),
                 'Shapiro (référence)': format_pval(r['shapiro_b']),
@@ -1100,6 +1137,10 @@ with tab_rdt:
                     sig_mark = " ✅" if res_ab['p'] < alpha_v else ""
                     p_matrix.loc[a, b] = f"{format_pval(res_ab['p'])}{sig_mark}"
                     d_matrix.loc[a, b] = res_ab['d']
+
+        rename_map_all = {b: disp(b) for b in all_bands_valid}
+        p_matrix = p_matrix.rename(index=rename_map_all, columns=rename_map_all)
+        d_matrix = d_matrix.rename(index=rename_map_all, columns=rename_map_all)
 
         c_p, c_d = st.columns(2)
         with c_p:
@@ -1168,12 +1209,17 @@ with tab_anova:
             st.subheader("📊 Rendement par Zone × Bande")
             pivot = df_final.groupby(['potentiel', 'grp'])['rdt'].agg(['mean', 'std', 'count']).round(2)
             pivot.columns = ['Rendement Moyen', 'Écart-Type', 'Nombre de points']
+            pivot = pivot.reset_index()
+            pivot['grp'] = pivot['grp'].map(disp)
+            pivot = pivot.rename(columns={'potentiel': 'Zone de potentiel', 'grp': 'Bande'}).set_index(
+                ['Zone de potentiel', 'Bande'])
             st.dataframe(pivot, use_container_width=True)
 
             fig_inter = px.box(
-                df_final, x="potentiel", y="rdt", color="grp",
-                color_discrete_map=color_map,
-                category_orders={"grp": [bande_ref] + autres_bandes},
+                df_final, x="potentiel", y="rdt", color="grp_disp",
+                color_discrete_map=color_map_disp,
+                category_orders={"grp_disp": order_disp},
+                labels={"grp_disp": "Bande"},
                 title="Les bandes fonctionnent-elles mieux sur certaines zones de sol ?"
             )
             fig_inter.update_layout(plot_bgcolor='white', paper_bgcolor='white', font_color='#33433a')
@@ -1193,7 +1239,7 @@ with tab_anova:
             """, unsafe_allow_html=True)
 
             zones_potentiel_ordered = order_zone_labels(df_final['potentiel'])
-            tbl_potentiel = compare_bands_within_zones(df_final, 'potentiel', zones_potentiel_ordered, bande_ref, alpha_v)
+            tbl_potentiel = compare_bands_within_zones(df_final, 'potentiel', zones_potentiel_ordered, bande_ref, alpha_v, disp=disp)
             potentiel_zone_stats_result = tbl_potentiel
             if tbl_potentiel.empty:
                 st.info("Pas assez d'observations par bande et par zone de potentiel (≥ 4 requises dans "
@@ -1240,6 +1286,8 @@ with tab_anova:
                 if not desc_zone.empty:
                     desc_zone.columns = ['N', 'Moyenne', 'Écart-type', 'Min', 'Q25', 'Médiane', 'Q75', 'Max']
                     desc_zone = desc_zone.reindex([b for b in bands_order_zone if b in desc_zone.index])
+                    desc_zone.index = [disp(i) for i in desc_zone.index]
+                    desc_zone.index.name = "Bande"
                     st.markdown(f"**Statistiques descriptives — zone '{zone_choisie}' (toutes bandes, y compris témoin)**")
                     st.dataframe(desc_zone, use_container_width=True)
                 else:
@@ -1251,6 +1299,9 @@ with tab_anova:
                             "pour une comparaison croisée.")
                 else:
                     p_mat_zone, d_mat_zone, _, _ = compute_pairwise_matrices(data_by_band_zone, bands_valid_zone, alpha_v)
+                    rename_map_zone = {b: disp(b) for b in bands_valid_zone}
+                    p_mat_zone = p_mat_zone.rename(index=rename_map_zone, columns=rename_map_zone)
+                    d_mat_zone = d_mat_zone.rename(index=rename_map_zone, columns=rename_map_zone)
                     c_pz, c_dz = st.columns(2)
                     with c_pz:
                         st.caption(f"p-value de chaque paire — zone '{zone_choisie}' (✅ = écart significatif)")
@@ -1270,15 +1321,15 @@ with tab_anova:
                         st.markdown(
                             f"""<div class="{'verdict-sig' if sig_z else 'verdict-nosig'}">
                             <strong>{'✅ Meilleure bande dans cette zone' if sig_z else '❌ Aucune bande significativement meilleure dans cette zone'}</strong>
-                            — Dans la zone <b>'{zone_choisie}'</b>, la bande <b>{best_zone['bande']}</b> affiche
+                            — Dans la zone <b>'{zone_choisie}'</b>, la bande <b>{disp(best_zone['bande'])}</b> affiche
                             {'un gain' if best_zone['gain'] >= 0 else 'un écart'} de <b>{best_zone['gain']:+.2f} qtx/ha</b>
-                            vs '{bande_ref}' — {best_zone['test']}, p = {format_pval(best_zone['p'])},
+                            vs '{disp(bande_ref)}' — {best_zone['test']}, p = {format_pval(best_zone['p'])},
                             Cohen's d = {best_zone['d']:.2f} ({best_zone['d_label']}).
                             </div>""",
                             unsafe_allow_html=True
                         )
                     else:
-                        st.info(f"Pas assez de données de référence ('{bande_ref}') dans la zone '{zone_choisie}' "
+                        st.info(f"Pas assez de données de référence ('{disp(bande_ref)}') dans la zone '{zone_choisie}' "
                                 "pour désigner une meilleure bande.")
 
             # ── 📊 UNE MÊME BANDE (Y COMPRIS LE TÉMOIN) SUR DEUX POTENTIELS ──
@@ -1295,7 +1346,7 @@ with tab_anova:
 
             bande_a_regarder = st.selectbox(
                 "Bande à analyser (y compris le témoin)",
-                [bande_ref] + autres_bandes, index=0, key="bande_zones_selectbox"
+                [bande_ref] + autres_bandes, index=0, key="bande_zones_selectbox", format_func=disp
             )
             zones_pour_bande = zones_a_inclure if zones_a_inclure else zones_potentiel_ordered
             if len(zones_pour_bande) < 2:
@@ -1303,12 +1354,12 @@ with tab_anova:
             else:
                 tbl_zones_bande = compare_zones_for_band(df_final, 'potentiel', bande_a_regarder, zones_pour_bande, alpha_v)
                 if tbl_zones_bande.empty:
-                    st.info(f"Pas assez d'observations pour la bande '{bande_a_regarder}' dans au moins 2 zones.")
+                    st.info(f"Pas assez d'observations pour la bande '{disp(bande_a_regarder)}' dans au moins 2 zones.")
                 else:
                     st.dataframe(tbl_zones_bande, use_container_width=True, hide_index=True)
                     nb_sig_bz = int((tbl_zones_bande['Significatif'] == '✅ Oui').sum())
                     st.caption(
-                        f"✅ {nb_sig_bz} paire(s) de zones où la bande '{bande_a_regarder}' rend "
+                        f"✅ {nb_sig_bz} paire(s) de zones où la bande '{disp(bande_a_regarder)}' rend "
                         f"significativement différemment, sur {len(tbl_zones_bande)} paire(s) testée(s)."
                     )
 
@@ -1366,9 +1417,10 @@ with tab_pca:
                 "Voici en attendant la relation directe entre cette variable et le rendement, par bande.")
         trend = "ols" if HAS_STATSMODELS else None
         fig_simple = px.scatter(
-            df_final, x=var, y="rdt", color="grp", trendline=trend,
-            color_discrete_map=color_map,
-            category_orders={"grp": [bande_ref] + autres_bandes},
+            df_final, x=var, y="rdt", color="grp_disp", trendline=trend,
+            color_discrete_map=color_map_disp,
+            category_orders={"grp_disp": order_disp},
+            labels={"grp_disp": "Bande"},
             title=f"Rendement en fonction de '{var}', par bande"
         )
         fig_simple.update_layout(plot_bgcolor='white', paper_bgcolor='white', font_color='#33433a')
@@ -1394,14 +1446,16 @@ with tab_pca:
                 df_pca['PC2'] = scores['PC2'].values
             else:
                 df_pca['PC2'] = 0.0
+            # 'grp_disp' est déjà présent (hérité de df_final) et utilisé pour l'affichage des graphiques ACP
 
             # ── Biplot : individus + vecteurs des variables de sol ──────
             fig_biplot = px.scatter(
                 df_pca, x="PC1", y="PC2",
-                color="grp", size="rdt", color_discrete_map=color_map,
-                category_orders={"grp": [bande_ref] + autres_bandes},
+                color="grp_disp", size="rdt", color_discrete_map=color_map_disp,
+                category_orders={"grp_disp": order_disp},
                 labels={"PC1": f"PC1 ({var_exp[0]:.1%})",
-                        "PC2": f"PC2 ({var_exp[1]:.1%})" if has_pc2 else "PC2"},
+                        "PC2": f"PC2 ({var_exp[1]:.1%})" if has_pc2 else "PC2",
+                        "grp_disp": "Bande"},
                 title="ACP — parcelles colorées par bande, taille = rendement"
             )
             scale = float(df_pca['PC1'].abs().max()) * 0.9 if len(df_pca) else 1.0
@@ -1438,6 +1492,8 @@ with tab_pca:
             cols_pos = ['PC1', 'PC2'] if has_pc2 else ['PC1']
             pos_bande = df_pca.groupby('grp')[cols_pos].mean().round(2)
             pos_bande = pos_bande.reindex([bande_ref] + [b for b in autres_bandes if b in pos_bande.index])
+            pos_bande.index = [disp(i) for i in pos_bande.index]
+            pos_bande.index.name = "Bande"
             st.subheader("📍 Position moyenne de chaque bande sur les axes de sol")
             st.dataframe(pos_bande, use_container_width=True)
             st.caption(
@@ -1508,16 +1564,16 @@ with tab_pca:
                 df_pca_binned, ordered_levels = bin_pca_levels(df_pca, n_levels=n_niveaux)
 
                 fig_niveaux = px.box(
-                    df_pca_binned, x="niveau_pc1", y="rdt", color="grp",
-                    color_discrete_map=color_map,
-                    category_orders={"grp": [bande_ref] + autres_bandes, "niveau_pc1": ordered_levels},
-                    labels={"niveau_pc1": "Niveau de sol (PC1)", "rdt": "Rendement (qtx/ha)"},
+                    df_pca_binned, x="niveau_pc1", y="rdt", color="grp_disp",
+                    color_discrete_map=color_map_disp,
+                    category_orders={"grp_disp": order_disp, "niveau_pc1": ordered_levels},
+                    labels={"niveau_pc1": "Niveau de sol (PC1)", "rdt": "Rendement (qtx/ha)", "grp_disp": "Bande"},
                     title="Rendement par bande, à niveau de sol comparable"
                 )
                 fig_niveaux.update_layout(plot_bgcolor='white', paper_bgcolor='white', font_color='#33433a')
                 st.plotly_chart(fig_niveaux, use_container_width=True)
 
-                tbl_niveaux = compare_bands_within_pca_levels(df_pca_binned, ordered_levels, bande_ref, alpha_v)
+                tbl_niveaux = compare_bands_within_pca_levels(df_pca_binned, ordered_levels, bande_ref, alpha_v, disp=disp)
                 bandes_niveaux_pca_result = tbl_niveaux
                 if tbl_niveaux.empty:
                     st.info("Pas assez d'observations par bande et par niveau de sol (≥ 4 requises) pour ce découpage. "
@@ -1551,7 +1607,7 @@ with tab_pca:
                 else:
                     tbl = ancova_res['table'].copy()
                     tbl_display = pd.DataFrame({
-                        'Bande': tbl['bande'],
+                        'Bande': tbl['bande'].map(disp),
                         'Gain ajusté vs réf. (qtx)': tbl['gain_ajuste'].round(2),
                         'IC 95 %': tbl.apply(lambda r: f"[{r['ci_low']:.2f} ; {r['ci_high']:.2f}]", axis=1),
                         'p-value': tbl['p'].apply(format_pval),
@@ -1566,8 +1622,8 @@ with tab_pca:
                         sig_adj = bool(best_adj['sig'])
                         verdict_adj_html = f"""<div class="{'verdict-sig' if sig_adj else 'verdict-nosig'}">
                         <strong>{'✅ À sol équivalent, une bande se détache' if sig_adj else '❌ À sol équivalent, aucune bande ne se détache clairement'}</strong>
-                        — La bande <b>{best_adj['bande']}</b> affiche un gain ajusté de
-                        <b>{best_adj['gain_ajuste']:+.2f} qtx/ha</b> vs '{bande_ref}' au niveau de sol moyen de l'essai
+                        — La bande <b>{disp(best_adj['bande'])}</b> affiche un gain ajusté de
+                        <b>{best_adj['gain_ajuste']:+.2f} qtx/ha</b> vs '{disp(bande_ref)}' au niveau de sol moyen de l'essai
                         (IC 95 % [{best_adj['ci_low']:.2f} ; {best_adj['ci_high']:.2f}], p = {format_pval(best_adj['p'])}).
                         {("Cet écart tient même une fois le niveau de sol neutralisé." if sig_adj else
                           "Une fois le niveau de sol neutralisé, l'écart observé n'est plus démontré statistiquement.")}
@@ -1575,7 +1631,7 @@ with tab_pca:
                         st.markdown(verdict_adj_html, unsafe_allow_html=True)
                         if bool(best_adj['sig_interaction']):
                             st.caption(
-                                f"⚠️ L'effet de la bande **{best_adj['bande']}** varie significativement selon le "
+                                f"⚠️ L'effet de la bande **{disp(best_adj['bande'])}** varie significativement selon le "
                                 f"niveau de sol (interaction p = {format_pval(best_adj['p_interaction'])}) : son gain "
                                 f"n'est donc pas constant partout sur la parcelle — regardez le graphique par niveau ci-dessus."
                             )
@@ -1703,14 +1759,14 @@ st.subheader("📤 Export des résultats")
 
 report_lines = [
     f"# Rapport Précis'Up — {datetime.now().strftime('%d/%m/%Y %H:%M')}",
-    f"**Culture** : {culture}  |  **Bande de référence** : {bande_ref}",
+    f"**Culture** : {culture}  |  **Bande de référence** : {disp(bande_ref)}",
     f"**Semis** : {d_semis}  |  **Application** : {d_appli}  |  **Récolte** : {d_recolt}",
     "",
     "## Comparatif des bandes vs référence",
 ]
 for r in resultats_bandes:
     report_lines.append(
-        f"- **{r['bande']}** (N={r['n']}) : gain {r['gain']:+.2f} qtx/ha ({r['gain_pct']:+.1f}%), "
+        f"- **{disp(r['bande'])}** (N={r['n']}) : gain {r['gain']:+.2f} qtx/ha ({r['gain_pct']:+.1f}%), "
         f"marge {r['marge']:.0f} €/ha — {r['test']}, p = {format_pval(r['p'])} "
         f"({'significatif' if r['sig'] else 'non significatif'}), Cohen's d = {r['d']:.2f} ({r['d_label']})"
     )
@@ -1746,21 +1802,21 @@ if potentiel_zone_stats_result is not None and not potentiel_zone_stats_result.e
     report_lines += ["", "## Comparaison des bandes à potentiel de sol égal (zones déclarées)"]
     for _, row in potentiel_zone_stats_result.iterrows():
         report_lines.append(
-            f"- {row['Zone de potentiel']} — {row['Bande']} vs {bande_ref} : "
+            f"- {row['Zone de potentiel']} — {row['Bande']} vs {disp(bande_ref)} : "
             f"gain {row['Gain (qtx)']} qtx, p = {row['p-value']} ({row['Significatif']})"
         )
 if bandes_niveaux_pca_result is not None and not bandes_niveaux_pca_result.empty:
     report_lines += ["", "## Comparaison des bandes à niveau de sol équivalent (PC1)"]
     for _, row in bandes_niveaux_pca_result.iterrows():
         report_lines.append(
-            f"- {row['Niveau de sol (PC1)']} — {row['Bande']} vs {bande_ref} : "
+            f"- {row['Niveau de sol (PC1)']} — {row['Bande']} vs {disp(bande_ref)} : "
             f"gain {row['Gain (qtx)']} qtx, p = {row['p-value']} ({row['Significatif']})"
         )
 if ancova_adjusted_result is not None and not ancova_adjusted_result['table'].empty:
     report_lines += ["", "## Gain ajusté par ANCOVA (à sol moyen équivalent)"]
     for _, row in ancova_adjusted_result['table'].iterrows():
         report_lines.append(
-            f"- **{row['bande']}** vs {bande_ref} : gain ajusté {row['gain_ajuste']:+.2f} qtx/ha "
+            f"- **{disp(row['bande'])}** vs {disp(bande_ref)} : gain ajusté {row['gain_ajuste']:+.2f} qtx/ha "
             f"[{row['ci_low']:.2f} ; {row['ci_high']:.2f}], p = {format_pval(row['p'])} "
             f"({'significatif' if row['sig'] else 'non significatif'}) — "
             f"interaction avec le sol : p = {format_pval(row['p_interaction'])} "
@@ -1778,7 +1834,7 @@ with exp_col1:
         use_container_width=True,
     )
 with exp_col2:
-    csv = df_final.to_csv(index=False).encode('utf-8')
+    csv = df_final.drop(columns=['grp_disp']).to_csv(index=False).encode('utf-8')
     st.download_button(
         "⬇️ Données filtrées (.csv)",
         csv,
@@ -1788,5 +1844,4 @@ with exp_col2:
     )
 
 with st.expander("📋 Données filtrées (après nettoyage IQR)"):
-    st.dataframe(df_final.reset_index(drop=True), use_container_width=True)
-
+    st.dataframe(df_final.drop(columns=['grp_disp']).reset_index(drop=True), use_container_width=True)
