@@ -824,9 +824,20 @@ try:
         st.error("❌ Aucun fichier .shp trouvé dans le zip.")
         st.stop()
 
-    sf = pyshp.Reader(shp_files[0])
-    field_names = [f[0] for f in sf.fields[1:]]  # on ignore le champ DeletionFlag
-    records = [list(r) for r in sf.records()]
+    # Lecture robuste de l'encodage : QGIS/Windows écrit souvent en latin-1/cp1252
+    # (accents dans les noms de colonnes ou valeurs, ex: « durée »), pas en UTF-8.
+    sf, field_names, records, last_err = None, None, None, None
+    for enc in ("utf-8", "cp1252", "latin-1"):
+        try:
+            sf = pyshp.Reader(shp_files[0], encoding=enc)
+            field_names = [f[0] for f in sf.fields[1:]]  # on ignore le champ DeletionFlag
+            records = [list(r) for r in sf.records()]
+            break
+        except Exception as e_enc:
+            last_err = e_enc
+            sf = None
+    if sf is None:
+        raise last_err
     df = pd.DataFrame(records, columns=field_names)
     df.columns = df.columns.str.lower().str.strip()
 
@@ -1847,5 +1858,3 @@ with exp_col2:
 
 with st.expander("📋 Données filtrées (après nettoyage IQR)"):
     st.dataframe(df_final.drop(columns=['grp_disp']).reset_index(drop=True), use_container_width=True)
-
-
