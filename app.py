@@ -122,6 +122,7 @@ PARAM_CULTURES = {
 }
 PALETTE_BANDES = ['#2d6a4f', '#40916c', '#74c69d', '#95d5b2', '#52b788', '#081c15', '#1b4332', '#a3b18a']
 COULEUR_REFERENCE = '#c0392b'
+MAX_BANDES = 5  # nombre maximal de bandes comparées simultanément
 
 # ══════════════════════════════════════════════════════════════════════════
 # 2. SIDEBAR (partie fixe, indépendante du fichier chargé)
@@ -353,7 +354,6 @@ def compare_bands_within_zones(df, zone_col, ordered_zones, bande_ref, alpha_v=0
     Pour chaque zone (ex: zone de potentiel déclarée dans le fichier), compare chaque bande à la
     référence avec le test le plus adapté choisi automatiquement — répond directement à
     « la bande est-elle meilleure, à potentiel de sol égal ? », zone par zone.
-    `disp` permet d'afficher le nom personnalisé de la bande sans changer les calculs.
     """
     rows = []
     for zone in ordered_zones:
@@ -649,7 +649,6 @@ def compare_bands_within_pca_levels(df_pca_binned, ordered_levels, bande_ref, al
     Pour chaque niveau de sol (issu du découpage de PC1), compare chaque bande à la référence,
     exactement comme le tableau ANOVA Zone × Bande, mais avec des niveaux de sol continus
     dérivés de l'ACP plutôt que de la colonne déclarative 'potentiel'.
-    `disp` permet d'afficher le nom personnalisé de la bande sans changer les calculs.
     """
     rows = []
     for niveau in ordered_levels:
@@ -802,7 +801,7 @@ if not uploaded_file:
     | *variables de sol* | ⚙️ recommandé pour l'ACP | pH, argile, matière organique, CEC, altitude, NDVI, réserve utile… (toute colonne numérique supplémentaire) |
 
     **Ce que fait l'application :**
-    - 📊 Sélectionnez **autant de bandes que vous voulez** et choisissez laquelle sert de **référence (témoin)**
+    - 📊 Sélectionnez **jusqu'à 5 bandes** et choisissez laquelle sert de **référence (témoin)**
     - 🏷️ Donnez un **nom clair à chaque bande** (barre latérale) pour les retrouver facilement partout dans l'analyse
     - Chaque bande est comparée à la référence avec le **test choisi automatiquement** selon vos données
     - 🔬 Comparaison **croisée de toutes les bandes entre elles**, pas seulement vs la référence
@@ -849,7 +848,7 @@ except Exception as e:
     st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════
-# 5-bis. NOMMAGE DES BANDES + SÉLECTION DES BANDES À COMPARER + VARIABLES DE SOL
+# 5-bis. SÉLECTION DES BANDES À COMPARER (paramétrable) + VARIABLES DE SOL
 # ══════════════════════════════════════════════════════════════════════════
 bandes_dispo = sorted(df['bande'].unique().tolist())
 soil_vars_candidates = detect_numeric_soil_columns(df)
@@ -882,11 +881,15 @@ def disp(b):
 
 with st.sidebar:
     with st.expander("🎚️ SÉLECTION DES BANDES", expanded=True):
-        st.caption("Choisissez les bandes à inclure, puis celle qui sert de référence (témoin). Vous pouvez en sélectionner autant que vous voulez.")
+        st.caption(f"Choisissez jusqu'à {MAX_BANDES} bandes à comparer, puis celle qui sert de référence (témoin).")
         bandes_selectionnees = st.multiselect(
-            "Bandes à inclure dans l'analyse",
-            bandes_dispo, default=bandes_dispo, format_func=disp
+            f"Bandes à inclure dans l'analyse ({MAX_BANDES} maximum)",
+            bandes_dispo, default=bandes_dispo[:MAX_BANDES], format_func=disp,
+            max_selections=MAX_BANDES
         )
+        if len(bandes_dispo) > MAX_BANDES:
+            st.caption(f"ℹ️ Votre fichier contient {len(bandes_dispo)} bandes : "
+                       f"{MAX_BANDES} peuvent être comparées à la fois.")
         if len(bandes_selectionnees) >= 2:
             bande_ref = st.selectbox(
                 "🔴 Bande de référence (Témoin)",
@@ -915,7 +918,7 @@ if len(bandes_selectionnees) < 2:
     st.stop()
 
 df_travail = df[df['bande'].isin(bandes_selectionnees)].copy()
-df_travail['grp'] = df_travail['bande']  # le nom réel de la bande sert de groupe (calculs)
+df_travail['grp'] = df_travail['bande']  # le nom réel de la bande sert de groupe
 
 n_initial = len(df_travail)
 if clean_iqr:
@@ -933,7 +936,7 @@ else:
 
 n_removed = n_initial - len(df_final)
 
-# ── Colonne d'affichage : le nom personnalisé de la bande, jamais utilisée dans les calculs ──
+# ── Colonne d'affichage : nom personnalisé de la bande, jamais utilisée dans les calculs ──
 df_final['grp_disp'] = df_final['grp'].map(disp)
 
 # ── Palette de couleurs : référence en rouge, autres bandes en verts ──────
@@ -941,7 +944,7 @@ autres_bandes = [b for b in bandes_selectionnees if b != bande_ref]
 color_map = {bande_ref: COULEUR_REFERENCE}
 for i, b in enumerate(autres_bandes):
     color_map[b] = PALETTE_BANDES[i % len(PALETTE_BANDES)]
-# Version « affichage » de la palette et de l'ordre des bandes, indexée sur les noms personnalisés
+# Versions « affichage » de la palette et de l'ordre des bandes (indexées sur les noms personnalisés)
 color_map_disp = {disp(k): v for k, v in color_map.items()}
 order_disp = [disp(bande_ref)] + [disp(b) for b in autres_bandes]
 
@@ -1446,7 +1449,6 @@ with tab_pca:
                 df_pca['PC2'] = scores['PC2'].values
             else:
                 df_pca['PC2'] = 0.0
-            # 'grp_disp' est déjà présent (hérité de df_final) et utilisé pour l'affichage des graphiques ACP
 
             # ── Biplot : individus + vecteurs des variables de sol ──────
             fig_biplot = px.scatter(
@@ -1845,3 +1847,5 @@ with exp_col2:
 
 with st.expander("📋 Données filtrées (après nettoyage IQR)"):
     st.dataframe(df_final.drop(columns=['grp_disp']).reset_index(drop=True), use_container_width=True)
+
+
